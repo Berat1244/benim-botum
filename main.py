@@ -7,15 +7,15 @@ from datetime import datetime, timedelta
 import threading
 from flask import Flask
 
-# --- KOYEB HATA ÇÖZÜCÜ (WEB SERVER) ---
+# --- KOYEB HATA ÇÖZÜCÜ ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Aktif ve 7/24 Calisiyor!"
+    return "Bot Aktif!"
 
 def run():
-    # Koyeb'in port hatasını (Deployment Error) bu satır çözer
+    # Koyeb'in beklediği portu otomatik ayarlar
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
 
@@ -120,7 +120,7 @@ def ana_menu(message):
     uid = message.from_user.id
     check_daily_reset(uid)
     u = get_user(uid)
-    # İşaretlediğin o kalabalık listeyi buradan sildim!
+    # İşaretlediğin kalabalık kısım buradan silindi!
     msg = (
         "✅ BOTUNA HOŞ GELDİN! 🎉\n\n"
         "Hesap alabilmek için gerekli şartları yerine getirdin!\n"
@@ -138,7 +138,7 @@ def ana_menu(message):
 def market_sec(message):
     if not check_sub(message.from_user.id): return
     markup = types.InlineKeyboardMarkup()
-    # Buton isimlerini stok dosyalarınla (Exxen.txt vb.) tam eşleştirdim
+    # Dosya isimleriyle eşleşen butonlar
     markup.add(types.InlineKeyboardButton("Exxen", callback_data="g_Exxen"), types.InlineKeyboardButton("Netflix", callback_data="g_Netflix"))
     markup.add(types.InlineKeyboardButton("Disney+", callback_data="g_Disney"), types.InlineKeyboardButton("HBO Max", callback_data="g_Hbomax"))
     markup.add(types.InlineKeyboardButton("PreDünyam", callback_data="g_Predunyam"))
@@ -150,10 +150,6 @@ def referans(message):
     u = get_user(uid)
     link = f"https://t.me/{bot.get_me().username}?start={uid}"
     bot.send_message(message.chat.id, f"🔗 **Davet Linkin:** `{link}`\n\n✅ Arkadaşın kanallara katıldığında +1 hak kazanırsın.")
-
-@bot.message_handler(commands=['fakeno'])
-def fakeno(message):
-    bot.send_message(message.chat.id, "📢 **Duyuru:** Fake numara yöntemi yakında eklenecektir!")
 
 @bot.callback_query_handler(func=lambda call: True)
 def query_handler(call):
@@ -187,7 +183,6 @@ def query_handler(call):
 
 if __name__ == "__main__":
     db_setup()
-    # Flask sunucusunu başlatıyoruz (Koyeb "Sağlıksız Hizmet" hatasını önler)
     t = threading.Thread(target=run)
     t.start()
     bot.infinity_polling()
