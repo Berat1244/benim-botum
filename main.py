@@ -12,7 +12,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Aktif!"
+    return "Bot Aktif ve 7/24 Calisiyor!"
 
 def run():
     # Koyeb'in port hatasını (Deployment Error) bu satır çözer
@@ -78,7 +78,7 @@ def get_account_safe(platform):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-        match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+:[^\s]+", account_search_string := content)
+        match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+:[^\s]+", content)
         if not match: return None
         account = match.group(0)
         new_content = content.replace(account, "", 1)
@@ -120,7 +120,7 @@ def ana_menu(message):
     uid = message.from_user.id
     check_daily_reset(uid)
     u = get_user(uid)
-    # İşaretlediğin kalabalık kısmı buradan tamamen sildim!
+    # İşaretlediğin o kalabalık listeyi buradan sildim!
     msg = (
         "✅ BOTUNA HOŞ GELDİN! 🎉\n\n"
         "Hesap alabilmek için gerekli şartları yerine getirdin!\n"
@@ -138,6 +138,7 @@ def ana_menu(message):
 def market_sec(message):
     if not check_sub(message.from_user.id): return
     markup = types.InlineKeyboardMarkup()
+    # Buton isimlerini stok dosyalarınla (Exxen.txt vb.) tam eşleştirdim
     markup.add(types.InlineKeyboardButton("Exxen", callback_data="g_Exxen"), types.InlineKeyboardButton("Netflix", callback_data="g_Netflix"))
     markup.add(types.InlineKeyboardButton("Disney+", callback_data="g_Disney"), types.InlineKeyboardButton("HBO Max", callback_data="g_Hbomax"))
     markup.add(types.InlineKeyboardButton("PreDünyam", callback_data="g_Predunyam"))
@@ -186,6 +187,7 @@ def query_handler(call):
 
 if __name__ == "__main__":
     db_setup()
+    # Flask sunucusunu başlatıyoruz (Koyeb "Sağlıksız Hizmet" hatasını önler)
     t = threading.Thread(target=run)
     t.start()
     bot.infinity_polling()
