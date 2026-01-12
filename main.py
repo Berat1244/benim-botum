@@ -8,14 +8,15 @@ import threading
 from flask import Flask
 import time
 
-# --- KOYEB HATA ÇÖZÜCÜ ---
+# --- KOYEB HATA ÇÖZÜCÜ (WEB SERVER) ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Aktif!"
+    return "Bot Aktif ve 7/24 Calisiyor!"
 
 def run():
+    # Koyeb'in port hatasını bu satır çözer
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
 
@@ -26,9 +27,9 @@ bot = telebot.TeleBot(TOKEN)
 # Kanallar
 ZORUNLU_KANALLAR = ["@Kampanyavebilgi", "@Dosyakanal1", "@kampanyachat"]
 
-# --- VERİTABANI BAĞLANTISI (Güvenli Mod) ---
+# --- VERİTABANI BAĞLANTISI (GÜVENLİ MOD) ---
 def get_db_connection():
-    # check_same_thread=False kilitlenmeleri önlemeye yardımcı olur
+    # timeout ve check_same_thread kilitlenmeleri önler
     conn = sqlite3.connect("veritabani.db", check_same_thread=False, timeout=20)
     return conn
 
@@ -54,11 +55,15 @@ def add_user(uid, ad, ref_id=None):
             conn = get_db_connection()
             c = conn.cursor()
             simdi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (uid, 5, 0, ad, ref_id, simdi))
+            # Kendi kendini davet etmeyi engelle
+            final_ref = ref_id if ref_id and int(ref_id) != int(uid) else None
+            c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (uid, 5, 0, ad, final_ref, simdi))
             conn.commit()
             conn.close()
-        except sqlite3.IntegrityError:
-            pass # Kullanıcı zaten varsa hatayı görmezden gel
+            return True
+        except:
+            return False
+    return False
 
 def update_val(uid, hak_artisi=0, davet_artisi=0, ref_temizle=False, yeni_hak=None):
     conn = get_db_connection()
@@ -72,8 +77,6 @@ def update_val(uid, hak_artisi=0, davet_artisi=0, ref_temizle=False, yeni_hak=No
         c.execute("UPDATE users SET ref_by = NULL WHERE uid = ?", (uid,))
     conn.commit()
     conn.close()
-
-# ... (check_daily_reset, get_account_safe, check_sub fonksiyonları aynı kalsın) ...
 
 def check_daily_reset(uid):
     user = get_user(uid)
@@ -107,12 +110,18 @@ def check_sub(user_id):
         except: return False
     return True
 
+# --- KOMUTLAR ---
 @bot.message_handler(commands=['start'])
 def start(message):
     uid = message.from_user.id
     ad = message.from_user.first_name or "Kullanıcı"
     params = message.text.split()
-    add_user(uid, ad) # add_user içindeki get_user kontrolü sayesinde güvenli
+    
+    ref_id = None
+    if len(params) > 1 and params[1].isdigit():
+        ref_id = int(params[1])
+
+    add_user(uid, ad, ref_id)
     check_daily_reset(uid)
     
     if not check_sub(uid):
@@ -128,6 +137,7 @@ def ana_menu(message):
     uid = message.from_user.id
     u = get_user(uid)
     if not u: return
+    # İşaretlediğin kalabalık kısım buradan silindi!
     msg = (
         "✅ BOTUNA HOŞ GELDİN! 🎉\n\n"
         f"💎 Mevcut Hakkın: **{u[0]}**\n"
@@ -137,12 +147,11 @@ def ana_menu(message):
     markup.add("/market", "/referansim")
     bot.send_message(message.chat.id, msg, reply_markup=markup)
 
-# ... (market, referansim ve query_handler fonksiyonlarını önceki temiz koddan ekleyebilirsin) ...
-
 @bot.message_handler(commands=['market'])
 def market_sec(message):
     if not check_sub(message.from_user.id): return
     markup = types.InlineKeyboardMarkup()
+    # Buton isimleri dosyalarınla tam eşleşmeli
     markup.add(types.InlineKeyboardButton("Exxen", callback_data="g_Exxen"), types.InlineKeyboardButton("Netflix", callback_data="g_Netflix"))
     markup.add(types.InlineKeyboardButton("Disney+", callback_data="g_Disney"), types.InlineKeyboardButton("HBO Max", callback_data="g_Hbomax"))
     markup.add(types.InlineKeyboardButton("PreDünyam", callback_data="g_Predunyam"))
@@ -151,19 +160,29 @@ def market_sec(message):
 @bot.message_handler(commands=['referansim'])
 def referans(message):
     uid = message.from_user.id
-    u = get_user(uid)
     link = f"https://t.me/{bot.get_me().username}?start={uid}"
-    bot.send_message(message.chat.id, f"🔗 **Davet Linkin:** `{link}`")
+    bot.send_message(message.chat.id, f"🔗 **Davet Linkin:**\n`{link}`\n\n✅ Her davette +1 hak kazanırsın.")
 
 @bot.callback_query_handler(func=lambda call: True)
 def query_handler(call):
     uid = call.from_user.id
     if call.data == "check_sub":
         if check_sub(uid):
+            user_data = get_user(uid)
+            # Referans ödülünü kanallara girince ver
+            if user_data and user_data[2]:
+                ref_owner = user_data[2]
+                update_val(ref_owner, hak_artisi=1, davet_artisi=1)
+                update_val(uid, ref_temizle=True)
+                try:
+                    bot.send_message(ref_owner, "✅ Bir arkadaşın kanallara katıldı! +1 Hak eklendi.")
+                except: pass
+                
             bot.delete_message(call.message.chat.id, call.message.message_id)
             ana_menu(call.message)
         else:
             bot.answer_callback_query(call.id, "❌ Kanallara katılmamışsın!", show_alert=True)
+            
     elif call.data.startswith("g_"):
         user = get_user(uid)
         if user and user[0] > 0:
@@ -183,7 +202,7 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
     
-    # Çakışmaları önlemek için eski bağlantıları temizle
+    # "Conflict" hatasını çözmek için
     bot.remove_webhook()
     time.sleep(1)
-    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
