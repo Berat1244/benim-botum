@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta
 import threading
 from flask import Flask
+import time
 
 # --- KOYEB HATA ÇÖZÜCÜ ---
 app = Flask('')
@@ -15,7 +16,6 @@ def home():
     return "Bot Aktif!"
 
 def run():
-    # Koyeb'in beklediği portu otomatik ayarlar
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
 
@@ -26,9 +26,14 @@ bot = telebot.TeleBot(TOKEN)
 # Kanallar
 ZORUNLU_KANALLAR = ["@Kampanyavebilgi", "@Dosyakanal1", "@kampanyachat"]
 
-# --- VERİTABANI ---
+# --- VERİTABANI BAĞLANTISI (Güvenli Mod) ---
+def get_db_connection():
+    # check_same_thread=False kilitlenmeleri önlemeye yardımcı olur
+    conn = sqlite3.connect("veritabani.db", check_same_thread=False, timeout=20)
+    return conn
+
 def db_setup():
-    conn = sqlite3.connect("veritabani.db")
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (uid INTEGER PRIMARY KEY, hak INTEGER, davet INTEGER, ad TEXT, ref_by INTEGER, last_daily TEXT)''')
@@ -36,7 +41,7 @@ def db_setup():
     conn.close()
 
 def get_user(uid):
-    conn = sqlite3.connect("veritabani.db")
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT hak, davet, ref_by, last_daily FROM users WHERE uid = ?", (uid,))
     res = c.fetchone()
@@ -45,15 +50,18 @@ def get_user(uid):
 
 def add_user(uid, ad, ref_id=None):
     if not get_user(uid):
-        conn = sqlite3.connect("veritabani.db")
-        c = conn.cursor()
-        simdi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (uid, 5, 0, ad, ref_id, simdi))
-        conn.commit()
-        conn.close()
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            simdi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (uid, 5, 0, ad, ref_id, simdi))
+            conn.commit()
+            conn.close()
+        except sqlite3.IntegrityError:
+            pass # Kullanıcı zaten varsa hatayı görmezden gel
 
 def update_val(uid, hak_artisi=0, davet_artisi=0, ref_temizle=False, yeni_hak=None):
-    conn = sqlite3.connect("veritabani.db")
+    conn = get_db_connection()
     c = conn.cursor()
     if yeni_hak is not None:
         simdi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -65,12 +73,16 @@ def update_val(uid, hak_artisi=0, davet_artisi=0, ref_temizle=False, yeni_hak=No
     conn.commit()
     conn.close()
 
+# ... (check_daily_reset, get_account_safe, check_sub fonksiyonları aynı kalsın) ...
+
 def check_daily_reset(uid):
     user = get_user(uid)
     if not user: return
-    last_time = datetime.strptime(user[3], "%Y-%m-%d %H:%M:%S")
-    if datetime.now() > last_time + timedelta(hours=24):
-        update_val(uid, yeni_hak=5)
+    try:
+        last_time = datetime.strptime(user[3], "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > last_time + timedelta(hours=24):
+            update_val(uid, yeni_hak=5)
+    except: pass
 
 def get_account_safe(platform):
     file_path = f"{platform}.txt"
@@ -95,18 +107,14 @@ def check_sub(user_id):
         except: return False
     return True
 
-# --- KOMUTLAR ---
 @bot.message_handler(commands=['start'])
 def start(message):
     uid = message.from_user.id
     ad = message.from_user.first_name or "Kullanıcı"
     params = message.text.split()
-    if not get_user(uid):
-        ref_id = int(params[1]) if len(params) > 1 and params[1].isdigit() else None
-        add_user(uid, ad, ref_id if ref_id != uid else None)
-    else:
-        check_daily_reset(uid)
-
+    add_user(uid, ad) # add_user içindeki get_user kontrolü sayesinde güvenli
+    check_daily_reset(uid)
+    
     if not check_sub(uid):
         markup = types.InlineKeyboardMarkup()
         for i, k in enumerate(ZORUNLU_KANALLAR, 1):
@@ -118,27 +126,23 @@ def start(message):
 
 def ana_menu(message):
     uid = message.from_user.id
-    check_daily_reset(uid)
     u = get_user(uid)
-    # İşaretlediğin kalabalık kısım buradan silindi!
+    if not u: return
     msg = (
         "✅ BOTUNA HOŞ GELDİN! 🎉\n\n"
-        "Hesap alabilmek için gerekli şartları yerine getirdin!\n"
-        "1. Kanallara abone oldun. (Yaptın!)\n"
-        "2. İlk hesap hakkın BEDAVA!! Hemen /market'ten seç.\n"
-        "3. Her kişi başına hak kazan.\n\n"
         f"💎 Mevcut Hakkın: **{u[0]}**\n"
         f"👥 Toplam Davetin: **{u[1]}**"
     )
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("/market", "/referansim", "/fakeno")
+    markup.add("/market", "/referansim")
     bot.send_message(message.chat.id, msg, reply_markup=markup)
+
+# ... (market, referansim ve query_handler fonksiyonlarını önceki temiz koddan ekleyebilirsin) ...
 
 @bot.message_handler(commands=['market'])
 def market_sec(message):
     if not check_sub(message.from_user.id): return
     markup = types.InlineKeyboardMarkup()
-    # Dosya isimleriyle eşleşen butonlar
     markup.add(types.InlineKeyboardButton("Exxen", callback_data="g_Exxen"), types.InlineKeyboardButton("Netflix", callback_data="g_Netflix"))
     markup.add(types.InlineKeyboardButton("Disney+", callback_data="g_Disney"), types.InlineKeyboardButton("HBO Max", callback_data="g_Hbomax"))
     markup.add(types.InlineKeyboardButton("PreDünyam", callback_data="g_Predunyam"))
@@ -149,40 +153,37 @@ def referans(message):
     uid = message.from_user.id
     u = get_user(uid)
     link = f"https://t.me/{bot.get_me().username}?start={uid}"
-    bot.send_message(message.chat.id, f"🔗 **Davet Linkin:** `{link}`\n\n✅ Arkadaşın kanallara katıldığında +1 hak kazanırsın.")
+    bot.send_message(message.chat.id, f"🔗 **Davet Linkin:** `{link}`")
 
 @bot.callback_query_handler(func=lambda call: True)
 def query_handler(call):
     uid = call.from_user.id
     if call.data == "check_sub":
         if check_sub(uid):
-            user_data = get_user(uid)
-            if user_data and user_data[2]:
-                ref_owner = user_data[2]
-                update_val(ref_owner, hak_artisi=1, davet_artisi=1)
-                update_val(uid, ref_temizle=True)
-                bot.send_message(ref_owner, "✅ Arkadaşın kanallara katıldı! +1 Hak eklendi.")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             ana_menu(call.message)
         else:
             bot.answer_callback_query(call.id, "❌ Kanallara katılmamışsın!", show_alert=True)
-            
     elif call.data.startswith("g_"):
-        check_daily_reset(uid)
         user = get_user(uid)
-        if user[0] <= 0:
-            bot.answer_callback_query(call.id, "❌ Hakkın bitti!", show_alert=True)
-            return
-        plat = call.data.split("_")[1]
-        acc = get_account_safe(plat)
-        if acc:
-            update_val(uid, hak_artisi=-1)
-            bot.send_message(call.message.chat.id, f"✅ **{plat.upper()} Hesabın:**\n\n`{acc}`")
+        if user and user[0] > 0:
+            plat = call.data.split("_")[1]
+            acc = get_account_safe(plat)
+            if acc:
+                update_val(uid, hak_artisi=-1)
+                bot.send_message(call.message.chat.id, f"✅ **{plat.upper()} Hesabın:**\n\n`{acc}`")
+            else:
+                bot.answer_callback_query(call.id, "😔 Stok bitti!", show_alert=True)
         else:
-            bot.answer_callback_query(call.id, "😔 Stok bitti!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Hakkın bitti!", show_alert=True)
 
 if __name__ == "__main__":
     db_setup()
     t = threading.Thread(target=run)
+    t.daemon = True
     t.start()
-    bot.infinity_polling()
+    
+    # Çakışmaları önlemek için eski bağlantıları temizle
+    bot.remove_webhook()
+    time.sleep(1)
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
