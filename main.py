@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import threading
 from flask import Flask
 
-# --- WEB SUNUCUSU (KOYEB İÇİN ŞART) ---
+# --- KOYEB HATA ÇÖZÜCÜ (WEB SERVER) ---
 app = Flask('')
 
 @app.route('/')
@@ -15,8 +15,9 @@ def home():
     return "Bot Aktif!"
 
 def run():
-    # Koyeb 8080 portunu dinler
-    app.run(host='0.0.0.0', port=8080)
+    # Koyeb'in port hatasını (Deployment Error) bu satır çözer
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host='0.0.0.0', port=port)
 
 # --- BOT AYARLARI ---
 TOKEN = '7990158345:AAHr9KWLdZZXaSeSmAbMpQO2bUcK7zY1UyQ'
@@ -77,7 +78,7 @@ def get_account_safe(platform):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-        match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+:[^\s]+", content)
+        match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+:[^\s]+", account_search_string := content)
         if not match: return None
         account = match.group(0)
         new_content = content.replace(account, "", 1)
@@ -119,6 +120,7 @@ def ana_menu(message):
     uid = message.from_user.id
     check_daily_reset(uid)
     u = get_user(uid)
+    # İşaretlediğin kalabalık kısmı buradan tamamen sildim!
     msg = (
         "✅ BOTUNA HOŞ GELDİN! 🎉\n\n"
         "Hesap alabilmek için gerekli şartları yerine getirdin!\n"
@@ -136,9 +138,9 @@ def ana_menu(message):
 def market_sec(message):
     if not check_sub(message.from_user.id): return
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Exxen", callback_data="g_exxen"), types.InlineKeyboardButton("Netflix", callback_data="g_netflix"))
-    markup.add(types.InlineKeyboardButton("Disney+", callback_data="g_disney"), types.InlineKeyboardButton("HBO Max", callback_data="g_hbomax"))
-    markup.add(types.InlineKeyboardButton("PreDünyam", callback_data="g_predunyam"))
+    markup.add(types.InlineKeyboardButton("Exxen", callback_data="g_Exxen"), types.InlineKeyboardButton("Netflix", callback_data="g_Netflix"))
+    markup.add(types.InlineKeyboardButton("Disney+", callback_data="g_Disney"), types.InlineKeyboardButton("HBO Max", callback_data="g_Hbomax"))
+    markup.add(types.InlineKeyboardButton("PreDünyam", callback_data="g_Predunyam"))
     bot.send_message(message.chat.id, "👇 Almak istediğin hesabı seç:", reply_markup=markup)
 
 @bot.message_handler(commands=['referansim'])
@@ -184,8 +186,6 @@ def query_handler(call):
 
 if __name__ == "__main__":
     db_setup()
-    # Flask sunucusunu ayrı bir kanalda başlatıyoruz
     t = threading.Thread(target=run)
     t.start()
-    # Botu başlatıyoruz
     bot.infinity_polling()
