@@ -21,7 +21,7 @@ def run():
     app.run(host='0.0.0.0', port=port)
 
 # --- BOT AYARLARI ---
-TOKEN = '7990158345:AAHr9KWLdZZXaSeSmAbMpQO2bUcK7zY1UyQ'
+TOKEN = '7990158345:AAGfUNFVw7dCiKOkTjb3UlobGxsADBNCW2w'
 bot = telebot.TeleBot(TOKEN)
 
 # Kanallar
