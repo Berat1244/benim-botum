@@ -12,11 +12,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- RENDER WEB SERVER ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Bot Hafızası ve Spotify Aktif!"
-
+def home(): return "Bot Aktif!"
 def run_flask():
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
@@ -27,17 +24,14 @@ bot = telebot.TeleBot(TOKEN)
 
 # --- KOMUTLAR ---
 
-# /start Komutu
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     args = message.text.split()
     invited_by = None
     if len(args) > 1:
-        try:
-            invited_by = int(args[1])
-        except:
-            invited_by = None
+        try: invited_by = int(args[1])
+        except: invited_by = None
 
     user_data = supabase.table("users").select("*").eq("user_id", user_id).execute()
     
@@ -48,7 +42,7 @@ def start(message):
             if inviter.data:
                 new_credits = inviter.data[0]['credits'] + 1
                 supabase.table("users").update({"credits": new_credits}).eq("user_id", invited_by).execute()
-                bot.send_message(invited_by, "🎉 Bir arkadaşın davetinle katıldı! +1 Hak kazandın.")
+                bot.send_message(invited_by, "🎉 Bir arkadaşın katıldı! +1 Hak kazandın.")
     
     current_user = supabase.table("users").select("*").eq("user_id", user_id).execute()
     credits = current_user.data[0]['credits']
@@ -63,33 +57,36 @@ def start(message):
         f"💎 **Mevcut Hakkın:** {credits}\n"
         f"👥 **Toplam Davetin:** {invite_count}\n\n"
         f"🔗 **Referans Linkin:**\n`{ref_link}`\n\n"
-        f"🎵 Spotify için: `/spotify şarkı_adı` yazabilirsin!"
+        f"🔓 Hesap almak için: `/spotify` yazabilirsin!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown")
 
-# --- SPOTİFY KOMUTU ---
+# --- SPOTIFY HESAP ATMA KOMUTU ---
 @bot.message_handler(commands=['spotify'])
-def spotify_search(message):
-    query = message.text.replace("/spotify", "").strip()
-    if not query:
-        bot.reply_to(message, "⚠️ Lütfen aratmak istediğin şarkı adını yaz! Örn: `/spotify Die With A Smile`")
-        return
+def send_accounts(message):
+    user_id = message.from_user.id
+    # Kullanıcının hakkını kontrol et
+    user_info = supabase.table("users").select("credits").eq("user_id", user_id).execute()
     
-    # Spotify arama linki oluşturur
-    search_url = f"https://open.spotify.com/search/{query.replace(' ', '%20')}"
-    
-    markup = types.InlineKeyboardMarkup()
-    btn = types.InlineKeyboardButton("🎧 Spotify'da Dinle", url=search_url)
-    markup.add(btn)
-    
-    bot.send_message(message.chat.id, f"🔍 **'{query}'** için Spotify arama sonuçları hazır:", reply_markup=markup, parse_mode="Markdown")
+    if user_info.data and user_info.data[0]['credits'] > 0:
+        # 1 hak düşür
+        new_credits = user_info.data[0]['credits'] - 1
+        supabase.table("users").update({"credits": new_credits}).eq("user_id", user_id).execute()
+        
+        # BURAYA HESAPLARI YAZ
+        hesaplar = (
+            "🚀 **İşte Spotify Hesabın:**\n\n"
+            "📧 e-Posta: `hesap1@gmail.com` \n"
+            "🔑 Şifre: `sifre123` \n\n"
+            f"Kalan Hakkın: **{new_credits}**"
+        )
+        bot.send_message(message.chat.id, hesaplar, parse_mode="Markdown")
+    else:
+        bot.send_message(message.chat.id, "⚠️ Üzgünüm, hiç hakkın kalmamış! Referans linkinle arkadaş davet et.")
 
-# --- BOTU BAŞLAT ---
 if __name__ == "__main__":
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
-    
-    print("Bot başlatılıyor...")
     bot.remove_webhook()
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
