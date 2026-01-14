@@ -1,83 +1,95 @@
 import telebot
 from telebot import types
 import os
-import sqlite3
-from datetime import datetime
 import threading
 from flask import Flask
+from supabase import create_client, Client
 
-# --- RENDER/KOYEB WEB SERVER AYARI ---
+# --- SUPABASE BAĞLANTISI (HAFIZA SİSTEMİ) ---
+SUPABASE_URL = "https://xjtneisfuvxzjrntarze.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdG5laXNmdXZ4empybnRhcnplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzODc1NTUsImV4cCI6MjA4Mzk2MzU1NX0.2HfFMOCywdJ4uUXeu_Vjf-Xf6v72WRxtUcIZPO63z4U"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# --- RENDER WEB SERVER ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Aktif!"
+    return "Bot Hafızası ve Spotify Aktif!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
 
-# --- VERİTABANI BAĞLANTISI ---
-# Render'da kilitlenme hatası almamak için check_same_thread=False ekledik
-conn = sqlite3.connect('users.db', check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS users 
-                  (user_id INTEGER PRIMARY KEY, credits INTEGER DEFAULT 5, invited_by INTEGER)''')
-conn.commit()
-
 # --- BOT AYARLARI ---
-# Token'ı tırnak içine doğru yazdığından emin ol
 TOKEN = '7990158345:AAGfUNFVw7dCiKOkTjb3UlobGxsADBNCW2w'
 bot = telebot.TeleBot(TOKEN)
 
 # --- KOMUTLAR ---
+
+# /start Komutu
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    
-    # Referans kontrolü
     args = message.text.split()
     invited_by = None
     if len(args) > 1:
-        invited_by = int(args[1])
+        try:
+            invited_by = int(args[1])
+        except:
+            invited_by = None
 
-    # Kullanıcıyı kaydet
-    cursor.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
+    user_data = supabase.table("users").select("*").eq("user_id", user_id).execute()
     
-    if user is None:
-        # Yeni kullanıcı
-        cursor.execute("INSERT INTO users (user_id, credits, invited_by) VALUES (?, ?, ?)", (user_id, 5, invited_by))
-        conn.commit()
-        if invited_by:
-            cursor.execute("UPDATE users SET credits = credits + 1 WHERE user_id = ?", (invited_by,))
-            conn.commit()
-            bot.send_message(invited_by, "🎉 Bir arkadaşın davetinle katıldı! +1 Hak kazandın.")
+    if not user_data.data:
+        supabase.table("users").insert({"user_id": user_id, "credits": 5, "invited_by": invited_by}).execute()
+        if invited_by and invited_by != user_id:
+            inviter = supabase.table("users").select("credits").eq("user_id", invited_by).execute()
+            if inviter.data:
+                new_credits = inviter.data[0]['credits'] + 1
+                supabase.table("users").update({"credits": new_credits}).eq("user_id", invited_by).execute()
+                bot.send_message(invited_by, "🎉 Bir arkadaşın davetinle katıldı! +1 Hak kazandın.")
     
-    # Güncel bilgileri çek
-    cursor.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
-    credits = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM users WHERE invited_by = ?", (user_id,))
-    invite_count = cursor.fetchone()[0]
+    current_user = supabase.table("users").select("*").eq("user_id", user_id).execute()
+    credits = current_user.data[0]['credits']
+    invites = supabase.table("users").select("user_id", count="exact").eq("invited_by", user_id).execute()
+    invite_count = invites.count if invites.count is not None else 0
 
-    ref_link = f"https://t.me/{(bot.get_me()).username}?start={user_id}"
+    bot_info = bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
     
     welcome_text = (
         f"✅ **BOTUNA HOŞ GELDİN!** 🎉\n\n"
         f"💎 **Mevcut Hakkın:** {credits}\n"
         f"👥 **Toplam Davetin:** {invite_count}\n\n"
         f"🔗 **Referans Linkin:**\n`{ref_link}`\n\n"
-        f"Arkadaşlarını davet ederek her kişi için +1 hak kazanabilirsin!"
+        f"🎵 Spotify için: `/spotify şarkı_adı` yazabilirsin!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown")
 
+# --- SPOTİFY KOMUTU ---
+@bot.message_handler(commands=['spotify'])
+def spotify_search(message):
+    query = message.text.replace("/spotify", "").strip()
+    if not query:
+        bot.reply_to(message, "⚠️ Lütfen aratmak istediğin şarkı adını yaz! Örn: `/spotify Die With A Smile`")
+        return
+    
+    # Spotify arama linki oluşturur
+    search_url = f"https://open.spotify.com/search/{query.replace(' ', '%20')}"
+    
+    markup = types.InlineKeyboardMarkup()
+    btn = types.InlineKeyboardButton("🎧 Spotify'da Dinle", url=search_url)
+    markup.add(btn)
+    
+    bot.send_message(message.chat.id, f"🔍 **'{query}'** için Spotify arama sonuçları hazır:", reply_markup=markup, parse_mode="Markdown")
+
 # --- BOTU BAŞLAT ---
 if __name__ == "__main__":
-    # Flask sunucusunu ayrı bir kolda başlat (Render için şart)
     t = threading.Thread(target=run_flask)
+    t.daemon = True
     t.start()
     
     print("Bot başlatılıyor...")
-    # Çakışmaları önlemek için eski update'leri temizle
     bot.remove_webhook()
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
